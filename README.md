@@ -14,10 +14,11 @@ JenPy 不发明新的概念，只把这件事做好——用 YAML 描述流水�
 
 - **YAML 流水线**：用简洁的 YAML 描述阶段与步骤，符合「配置即代码」理念
 - **真实执行引擎**：实时输出、超时控制、环境变量、失败即停
+- **完整日志落盘**：每步命令的完整输出存到独立文件，`jenpy logs` 能查看真实文本，不只是成败
 - **构建历史**：每次执行的结果、耗时、步骤明细自动落盘，随时可查
-- **条件执行**：用 `when` 表达式控制阶段是否执行（如仅 main 分支部署）
-- **自动触发**：内置 webhook 服务和定时轮询，支持远程/自动触发构建
-- **部署支持**：内置 rsync 部署和自定义脚本两种部署方式
+- **条件执行**：用 `when` 表达式控制阶段是否执行（如仅 main 分支部署）；采用自研安全解析器，无 eval 代码注入风险
+- **自动触发**：内置 webhook 服务和定时轮询（基于 `git ls-remote` 可靠检测远程更新），支持远程/自动触发构建
+- **部署支持**：内置 copy（纯 Python 跨平台）、rsync、自定义脚本三种部署方式
 - **零依赖核心**：除 PyYAML 外不依赖任何第三方库
 
 ## 安装
@@ -75,9 +76,10 @@ stages:
     when: branch == 'main'
     steps:
       - deploy:
-          method: rsync
+          method: copy             # 纯 Python 跨平台搬运，无需安装 rsync
           source: ./dist/
-          target: user@server:/var/www/app/
+          target: ./deployed/
+          delete: true             # 部署前清空目标目录
 ```
 
 ### 字段说明
@@ -109,6 +111,33 @@ stages:
 | `env` | 该步骤专属的环境变量 |
 | `continue_on_error` | 为 true 时，此步骤失败不阻断后续 |
 | `deploy` | 部署配置（与 `run` 二选一） |
+
+### 部署方式
+
+`deploy.method` 支持三种：
+
+| 方式 | 说明 | 适用场景 |
+|---|---|---|
+| `copy` | 纯 Python 复制（基于 shutil），跨平台零依赖 | 本地/同机部署、容器内、Windows 环境 |
+| `rsync` | 调用系统 rsync 增量同步 | 远程服务器部署（需系统已安装 rsync） |
+| `script` | 执行自定义部署脚本 | 复杂部署逻辑（docker、scp、helm 等） |
+
+三种方式都支持 `source`、`target`、`delete`（部署前清空目标）字段。
+
+### 条件表达式（when）
+
+`when` 采用自研安全解析器（**不使用 eval**），只支持一个极小的语法子集，杜绝代码注入：
+
+```
+branch == 'main'                              # 相等
+env != 'test'                                 # 不等
+branch == 'main' and env == 'prod'            # 与
+branch == 'main' or branch == 'release'       # 或
+(branch == 'main' or branch == 'release') and env == 'prod'   # 括号分组
+git.ref == 'main'                             # 点号访问嵌套变量
+```
+
+支持的运算符：`==` `!=` `and` `or` `()`。不支持 `>` `<` 等其他运算符（刻意限制）。
 
 ### 模板变量
 
@@ -159,10 +188,11 @@ jenpy/
 ├── cli.py          命令行入口
 ├── config.py       YAML 加载与校验
 ├── pipeline.py     数据模型（Pipeline/Stage/Step）
-├── executor.py     执行引擎（核心）
+├── conditions.py   when 条件安全求值器（自研，无 eval）
+├── executor.py     执行引擎（核心，含日志落盘与超时）
 ├── history.py      构建历史读写
 ├── trigger.py      webhook 与定时轮询
-├── deploy.py       部署执行器
+├── deploy.py       部署执行器（copy/rsync/script）
 └── template.py     示例配置模板
 ```
 

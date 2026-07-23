@@ -108,13 +108,38 @@ def _run_once(pipeline) -> None:
 
 
 def _current_remote_commit() -> str:
-    """获取当前分支远程最新 commit hash。失败返回空串。"""
+    """获取当前分支远程最新 commit hash。
+
+    第一性原理：判断「远程是否有新提交」最可靠的方式是直接问远程，
+    而不是依赖本地可能不存在的 origin/HEAD ref。
+    用 git ls-remote 拉取当前分支对应的远程 ref，避免本地仓库状态干扰。
+    """
+    branch = _current_branch()
+    if not branch:
+        return ""
     try:
         out = subprocess.run(
-            ["git", "rev-parse", "origin/HEAD"],
+            ["git", "ls-remote", "origin", branch],
             capture_output=True, text=True, timeout=30,
         )
-        return out.stdout.strip() if out.returncode == 0 else ""
+        if out.returncode != 0 or not out.stdout:
+            return ""
+        # 输出格式：<sha>\trefs/heads/<branch>
+        return out.stdout.split()[0].strip()
+    except Exception:
+        return ""
+
+
+def _current_branch() -> str:
+    """获取当前分支名。失败返回空串。"""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+        branch = out.stdout.strip()
+        # HEAD（ detached 状态）无法用于轮询
+        return branch if out.returncode == 0 and branch != "HEAD" else ""
     except Exception:
         return ""
 

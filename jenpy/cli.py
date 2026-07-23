@@ -110,11 +110,13 @@ def cmd_run(args) -> int:
     """执行流水线。"""
     pipeline = load_pipeline(args.file)
     context = _parse_vars(args.var)
-    executor = Executor()
+    # 先生成 build_id，保证 executor 的日志目录与 history 记录一致
+    build_id = history.new_build_id()
+    executor = Executor(build_id=build_id)
     result = executor.run(pipeline, context)
 
     # 落盘到历史记录
-    build_id = history.save(result)
+    history.save(result)
     print(_c(f"  构建记录 ID: {build_id}", "gray"))
     print(_c(f"  查看: jenpy logs {build_id}", "gray"))
 
@@ -153,7 +155,11 @@ def cmd_history(args) -> int:
 
 
 def cmd_logs(args) -> int:
-    """查看某次构建的步骤明细。"""
+    """查看某次构建的步骤明细。
+
+    第一性原理：排查问题时，人最需要的是「每一步实际输出了什么」。
+    因此除了成败，还打印每步的完整日志文本（如果存在）。
+    """
     record = history.get_record(args.build_id)
     if not record:
         print(_c(f"找不到构建记录: {args.build_id}", "red"))
@@ -168,6 +174,25 @@ def cmd_logs(args) -> int:
     for s in record["steps"]:
         mark = _c("✓", "green") if s["success"] else _c("✗", "red")
         print(f"    {mark} [{s['stage']}] {s['step']} ({s['duration']}s)")
+
+    # 打印每步的完整日志文本
+    import os
+    shown = False
+    for s in record["steps"]:
+        log_file = s.get("log_file")
+        if log_file and os.path.isfile(log_file):
+            if not shown:
+                print(_c("\n  日志输出:", "yellow"))
+                shown = True
+            print(_c(f"\n  ── [{s['stage']}] {s['step']} ──", "gray"))
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        print(f"    {line.rstrip()}")
+            except OSError as e:
+                print(_c(f"    (读取日志失败: {e})", "red"))
+    if not shown:
+        print(_c("\n  (无日志文件，可能是旧版本记录)", "gray"))
     return 0
 
 

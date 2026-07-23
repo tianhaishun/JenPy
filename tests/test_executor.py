@@ -56,13 +56,17 @@ def test_continue_on_error():
 
 
 def test_timeout():
-    """超时应被捕获并标记失败。"""
+    """超时应被捕获并标记失败。
+
+    用 Python 触发长耗时，避免依赖平台相关的 sleep 命令。
+    """
     pipeline = _make_pipeline([
         Stage(name="s1", steps=[
-            Step(name="slow", run="sleep 10", timeout=1),
+            Step(name="slow", run="python -c \"import time; time.sleep(10)\"",
+                 timeout=1),
         ]),
     ])
-    result = Executor().run(pipeline)
+    result = Executor(build_id="test-timeout").run(pipeline)
     assert result.success is False
     assert result.steps[0].success is False
 

@@ -29,10 +29,11 @@ def save(result: BuildResult) -> str:
     """把一次构建结果存入历史，返回 build_id。
 
     第一性原理：记录要能回答三个问题——何时、是什么流水线、成不成功。
-    步骤明细是附加信息，便于事后排查。
+    步骤明细 + 日志目录是附加信息，便于事后排查。
     """
     os.makedirs(HISTORY_DIR, exist_ok=True)
-    build_id = new_build_id()
+    # 优先使用 executor 分配的 build_id，保证与日志目录一致
+    build_id = result.build_id or new_build_id()
 
     record = {
         "build_id": build_id,
@@ -40,12 +41,14 @@ def save(result: BuildResult) -> str:
         "status": "success" if result.success else "failed",
         "started_at": result.started_at,
         "duration": round(result.duration, 2),
+        "log_dir": result.log_dir,
         "steps": [
             {
                 "stage": s.stage_name,
                 "step": s.step_name,
                 "success": s.success,
                 "duration": round(s.duration, 2),
+                "log_file": s.log_file,
             }
             for s in result.steps
         ],
