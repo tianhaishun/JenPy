@@ -1,51 +1,182 @@
 # JenPy
-JenPy: A modern CI/CD tool combining Python's flexibility with Jenkins' automation prowess. Designed for Python developers, it simplifies building, testing, and deploying code. JenPy harnesses Python's ecosystem and Jenkins' best practices for an efficient software development process.
-# JenPy
+
+JenPy: A minimal CI/CD tool combining Python's flexibility with Jenkins' automation prowess. Designed for Python developers, it simplifies building, testing, and deploying code.
 
 ## 简介
-JenPy 是一个创新的CI/CD工具，它将 Python 的灵活性与 Jenkins 的自动化能力相结合。这个工具为 Python 开发者设计，目的是简化代码构建、测试和部署过程。JenPy 不仅利用了 Python 强大的生态系统，还融入了 Jenkins 的成熟实践，为现代软件开发提供了一个高效、简化的解决方案。
+
+JenPy 是一个极简的 CI/CD 工具，用 Python 写成。它的设计遵循**第一性原理**：
+
+> CI/CD 的本质，就是「按顺序执行一组命令，并记录结果」。
+
+JenPy 不发明新的概念，只把这件事做好——用 YAML 描述流水线，用命令行执行它，把每次的结果存下来。
 
 ## 功能特点
-- **灵活的配置**：利用 Python 语言的简洁性和直观性，使配置过程既快速又容易。
-- **自动化测试与部署**：自动执行测试脚本，确保代码质量，支持多种部署策略。
-- **强大的集成**：易于集成到现有的 Python 项目和工作流中。
-- **社区驱动**：鼓励开发者和用户社区贡献意见和代码，共同推动项目发展。
-- **可扩展性**：设计上考虑了未来的扩展和新功能的加入，以适应不断变化的开发需求。
+
+- **YAML 流水线**：用简洁的 YAML 描述阶段与步骤，符合「配置即代码」理念
+- **真实执行引擎**：实时输出、超时控制、环境变量、失败即停
+- **构建历史**：每次执行的结果、耗时、步骤明细自动落盘，随时可查
+- **条件执行**：用 `when` 表达式控制阶段是否执行（如仅 main 分支部署）
+- **自动触发**：内置 webhook 服务和定时轮询，支持远程/自动触发构建
+- **部署支持**：内置 rsync 部署和自定义脚本两种部署方式
+- **零依赖核心**：除 PyYAML 外不依赖任何第三方库
+
+## 安装
+
+```bash
+git clone https://github.com/tianhaishun/JenPy.git
+cd JenPy
+pip install -e .
+```
+
+安装后会得到 `jenpy` 命令。
 
 ## 快速开始
-要开始使用 JenPy，请遵循以下步骤：
-1. **克隆仓库**
-   ```bash
-   git clone https://github.com/tianhaishun/jenpy.git
 
-## 配置 CI/CD 流程
-根据项目需求，在配置文件中设置流程参数。
+### 1. 生成示例配置
 
-## 运行 JenPy
-通过命令行或集成环境启动 JenPy，开始构建和测试过程。
+```bash
+jenpy init              # 在当前目录生成 jenpy.yaml
+```
 
-## 监控和优化
-使用 JenPy 的监控工具检查构建和部署过程，根据反馈优化配置。
+### 2. 执行流水线
 
-## 使用指南
-详细的使用说明和示例可以在我们的 [官方文档](链接到详细文档) 中找到。
+```bash
+jenpy run               # 默认读取 jenpy.yaml 并执行
+```
+
+执行时你会看到实时输出和每一步的成败状态。
+
+### 3. 查看历史
+
+```bash
+jenpy history           # 列出最近的构建记录
+jenpy logs <build_id>   # 查看某次构建的步骤明细
+```
+
+## 流水线配置
+
+配置文件是普通的 YAML。最小示例：
+
+```yaml
+name: my-project
+
+stages:
+  - name: 构建
+    steps:
+      - run: pip install -r requirements.txt
+        timeout: 300
+
+  - name: 测试
+    steps:
+      - run: pytest -v
+        continue_on_error: true
+
+  - name: 部署
+    when: branch == 'main'
+    steps:
+      - deploy:
+          method: rsync
+          source: ./dist/
+          target: user@server:/var/www/app/
+```
+
+### 字段说明
+
+**顶层**
+
+| 字段 | 说明 |
+|---|---|
+| `name` | 流水线名称 |
+| `workspace` | 命令执行的工作目录（默认 `.`） |
+| `env` | 全局环境变量，所有阶段共享 |
+| `stages` | 阶段列表，按顺序执行 |
+
+**Stage（阶段）**
+
+| 字段 | 说明 |
+|---|---|
+| `name` | 阶段名称 |
+| `steps` | 步骤列表 |
+| `when` | 条件表达式，为假时跳过该阶段（如 `branch == 'main'`） |
+
+**Step（步骤）**
+
+| 字段 | 说明 |
+|---|---|
+| `name` | 步骤名称 |
+| `run` | 要执行的 shell 命令（支持多行、`{{ var }}` 模板变量） |
+| `timeout` | 超时秒数，防止命令挂死 |
+| `env` | 该步骤专属的环境变量 |
+| `continue_on_error` | 为 true 时，此步骤失败不阻断后续 |
+| `deploy` | 部署配置（与 `run` 二选一） |
+
+### 模板变量
+
+命令中可用 `{{ var }}` 引用通过 `--var` 注入的变量：
+
+```bash
+jenpy run --var branch=main --var env=prod
+```
+
+配置中：`run: echo "部署到 {{ env }} 环境"`
+
+## 命令参考
+
+```
+jenpy init [-o FILE]            生成示例配置
+jenpy run [-f FILE] [--var K=V] 执行流水线
+jenpy list [-f FILE]            查看流水线结构
+jenpy history [-n N]            查看构建历史
+jenpy logs <build_id>           查看某次构建明细
+jenpy serve [-p PORT] [--token T]  启动 webhook 服务
+jenpy watch [-i SECONDS]        定时轮询自动触发
+```
+
+### 自动触发
+
+**Webhook 模式**（事件驱动）——启动一个 HTTP 服务，收到 POST 即触发：
+
+```bash
+jenpy serve --port 8080 --token your-secret
+```
+
+触发方式：
+```bash
+curl -X POST -H "X-JenPy-Token: your-secret" http://127.0.0.1:8080/
+```
+
+**轮询模式**（时间驱动）——定期检查 git 是否有新提交，有则自动构建：
+
+```bash
+jenpy watch --interval 60
+```
+
+## 项目结构
+
+```
+jenpy/
+├── __init__.py     版本号
+├── cli.py          命令行入口
+├── config.py       YAML 加载与校验
+├── pipeline.py     数据模型（Pipeline/Stage/Step）
+├── executor.py     执行引擎（核心）
+├── history.py      构建历史读写
+├── trigger.py      webhook 与定时轮询
+├── deploy.py       部署执行器
+└── template.py     示例配置模板
+```
+
+## 运行测试
+
+```bash
+pip install pytest
+pytest tests/ -v
+```
 
 ## 如何贡献
-我们欢迎并鼓励社区贡献！如果你有兴趣帮助 JenPy 发展，可以通过以下方式参与：
-- **提交问题**：在 GitHub Issues 中报告 bug 或提出新功能建议。
-- **提交拉取请求**：对代码进行改进或添加新功能。
-- **改进文档**：帮助我们完善使用指南和文档。
 
-贡献指南和详细的提交流程可以在我们的 [贡献页面](链接到贡献指南) 中找到。
-
-## 社区和支持
-加入我们的社区，参与讨论，获取帮助和支持：
-- [论坛](链接到相关论坛)
-- [Slack 频道](链接到 Slack 频道)
+欢迎提交 Issue 和 Pull Request。请确保 `pytest tests/` 通过。
 
 ## 许可证
-JenPy 根据 [Apache License 2.0](LICENSE) 发布。详情请参阅许可证文件。
 
-
-## 致谢
-特别感谢所有为 JenPy 做出贡献的社区成员，以及所有提供反馈和支持的用户。
+[Apache License 2.0](LICENSE)
