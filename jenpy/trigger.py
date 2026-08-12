@@ -51,8 +51,20 @@ def _make_server(pipeline, config_file, host, port, token):
             if token and self.headers.get("X-JenPy-Token") != token:
                 self._respond(403, "token 校验失败")
                 return
+            # 读取 body，尝试解析为 JSON 取 context（兼容无 body 的旧调用）
+            context = None
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > 0:
+                    import json as _json
+                    body = self.rfile.read(length).decode("utf-8")
+                    data = _json.loads(body) if body.strip() else {}
+                    if isinstance(data, dict):
+                        context = data.get("context")
+            except Exception:
+                pass  # 解析失败则用默认 git context
             # 异步触发，避免 HTTP 超时
-            threading.Thread(target=_run_once, args=(pipeline,), daemon=True).start()
+            threading.Thread(target=_run_once, args=(pipeline, context), daemon=True).start()
             self._respond(200, "构建已触发")
 
         def do_GET(self):
@@ -100,11 +112,46 @@ def watch(config_file: str, interval: int) -> int:
     return 0
 
 
-def _run_once(pipeline) -> None:
-    """执行一次流水线并记录结果（供 webhook/watch 复用）。"""
+def _run_once(pipeline, context=None) -> None:
+    """执行一次流水线并记录结果（供 webhook/watch 复用）。
+
+    context：注入的模板/条件变量。自动触发时若不传，会探测当前 git 信息
+    （branch、commit）注入，使 when 条件（如 branch == 'main'）真正生效。
+    """
+    if context is None:
+        context = _detect_git_context()
     executor = Executor()
-    result = executor.run(pipeline)
+    result = executor.run(pipeline, context)
     history.save(result)
+
+
+def _detect_git_context() -> dict:
+    """探测当前仓库的 git 信息，作为自动触发的默认 context。
+
+    第一性原理：自动触发最常用的条件就是「在哪个分支」「是哪个提交」。
+    让这两个值默认可用，否则 when: branch == 'main' 在 watch 模式下永远为假。
+    """
+    branch = _current_branch()
+    commit = _current_commit()
+    ctx = {}
+    if branch:
+        ctx["branch"] = branch
+        ctx["git"] = {"ref": branch}
+    if commit:
+        ctx.setdefault("git", {})["commit"] = commit
+    return ctx
+
+
+def _current_commit() -> str:
+    """获取当前 HEAD 的短 commit hash。失败返回空串。"""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception:
+        return ""
 
 
 def _current_remote_commit() -> str:

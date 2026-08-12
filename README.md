@@ -1,62 +1,74 @@
 # JenPy
 
-JenPy: A minimal CI/CD tool combining Python's flexibility with Jenkins' automation prowess. Designed for Python developers, it simplifies building, testing, and deploying code.
+> 用 Python 写的极简 CI/CD 工具 —— 既有命令行的简洁，又有可视化平台的直观。
 
-## 简介
+[![CI](https://github.com/tianhaishun/JenPy/actions/workflows/ci.yml/badge.svg)](https://github.com/tianhaishun/JenPy/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-JenPy 是一个极简的 CI/CD 工具，用 Python 写成。它的设计遵循**第一性原理**：
+JenPy 将 Python 的灵活性与 Jenkins 的自动化能力结合，为 Python 开发者打造一款**轻量、可视、可扩展**的 CI/CD 工具。
 
-> CI/CD 的本质，就是「按顺序执行一组命令，并记录结果」。
+## 为什么选择 JenPy？
 
-JenPy 不发明新的概念，只把这件事做好——用 YAML 描述流水线，用命令行执行它，把每次的结果存下来。
+| 特性 | JenPy | Jenkins | Drone/Woodpecker |
+|------|-------|---------|------------------|
+| 安装复杂度 | `pip install` 即用 | 需 Java + 容器 | 需 Docker + 数据库 |
+| 配置方式 | 单个 YAML | XML / Jenkinsfile | YAML + 容器 |
+| 可视化 UI | 内置（`jenpy ui`） | 内置 | 内置 |
+| 核心依赖 | 仅 PyYAML | JRE | Docker |
+| 扩展门槛 | 一个 Python 函数 | 写 Java 插件 | 写 Go 插件 |
+| 适合场景 | Python 项目 / 个人 / 小团队 | 企业级 / 多语言 | 容器原生 |
 
-## 功能特点
+## 两种使用方式
 
-- **YAML 流水线**：用简洁的 YAML 描述阶段与步骤，符合「配置即代码」理念
-- **真实执行引擎**：实时输出、超时控制、环境变量、失败即停
-- **完整日志落盘**：每步命令的完整输出存到独立文件，`jenpy logs` 能查看真实文本，不只是成败
-- **构建历史**：每次执行的结果、耗时、步骤明细自动落盘，随时可查
-- **条件执行**：用 `when` 表达式控制阶段是否执行（如仅 main 分支部署）；采用自研安全解析器，无 eval 代码注入风险
-- **自动触发**：内置 webhook 服务和定时轮询（基于 `git ls-remote` 可靠检测远程更新），支持远程/自动触发构建
-- **部署支持**：内置 copy（纯 Python 跨平台）、rsync、自定义脚本三种部署方式
-- **零依赖核心**：除 PyYAML 外不依赖任何第三方库
+### 命令行（CLI）
 
-## 安装
+```bash
+jenpy run          # 执行流水线，实时输出
+jenpy history      # 查看构建历史
+jenpy logs <id>    # 查看某次构建的步骤明细
+```
+
+### 可视化 Web UI
+
+```bash
+jenpy ui           # 启动 Web 平台（http://127.0.0.1:8000）
+```
+
+浏览器中你可以：
+- 📊 **Dashboard**：构建概览，成功率/耗时统计，一键触发
+- 📝 **可视化编辑器**：拖拽表单编辑流水线，实时 YAML 预览
+- 📡 **实时日志流**：构建进行中逐行推送输出（SSE），像终端一样
+- 🔄 **手动触发/重跑**：浏览器上一键触发或重跑失败的构建
+
+## 快速开始
+
+### 安装
 
 ```bash
 git clone https://github.com/tianhaishun/JenPy.git
 cd JenPy
-pip install -e .
+pip install -e .           # 核心 CLI（零额外依赖）
+pip install -e ".[web]"    # 加上可视化 UI（FastAPI + uvicorn）
 ```
 
-安装后会得到 `jenpy` 命令。
-
-## 快速开始
-
-### 1. 生成示例配置
+### 核心 CLI
 
 ```bash
-jenpy init              # 在当前目录生成 jenpy.yaml
+jenpy init              # 生成示例配置 jenpy.yaml
+jenpy run               # 执行流水线
+jenpy history           # 查看历史
 ```
 
-### 2. 执行流水线
+### 可视化 UI
 
 ```bash
-jenpy run               # 默认读取 jenpy.yaml 并执行
-```
-
-执行时你会看到实时输出和每一步的成败状态。
-
-### 3. 查看历史
-
-```bash
-jenpy history           # 列出最近的构建记录
-jenpy logs <build_id>   # 查看某次构建的步骤明细
+jenpy ui                # 启动 Web 平台
+# 浏览器打开 http://127.0.0.1:8000
 ```
 
 ## 流水线配置
 
-配置文件是普通的 YAML。最小示例：
+配置是普通的 YAML：
 
 ```yaml
 name: my-project
@@ -76,13 +88,28 @@ stages:
     when: branch == 'main'
     steps:
       - deploy:
-          method: copy             # 纯 Python 跨平台搬运，无需安装 rsync
+          method: copy             # 纯 Python 跨平台，无需 rsync
           source: ./dist/
           target: ./deployed/
-          delete: true             # 部署前清空目标目录
+          delete: true
 ```
 
-### 字段说明
+完整字段说明见 [文档](#字段说明)。可视化编辑器可在浏览器中直接编辑并保存。
+
+## 命令参考
+
+```
+jenpy init [-o FILE]               生成示例配置
+jenpy run [-f FILE] [--var K=V]    执行流水线
+jenpy list [-f FILE]               查看流水线结构
+jenpy history [-n N]               查看构建历史
+jenpy logs <build_id>              查看某次构建明细
+jenpy ui [-p PORT]                 启动可视化 Web 界面
+jenpy serve [-p PORT] [--token T]  启动 webhook 服务（兼容旧版）
+jenpy watch [-i SECONDS]           定时轮询自动触发
+```
+
+## 字段说明
 
 **顶层**
 
@@ -114,98 +141,69 @@ stages:
 
 ### 部署方式
 
-`deploy.method` 支持三种：
-
 | 方式 | 说明 | 适用场景 |
 |---|---|---|
-| `copy` | 纯 Python 复制（基于 shutil），跨平台零依赖 | 本地/同机部署、容器内、Windows 环境 |
-| `rsync` | 调用系统 rsync 增量同步 | 远程服务器部署（需系统已安装 rsync） |
-| `script` | 执行自定义部署脚本 | 复杂部署逻辑（docker、scp、helm 等） |
-
-三种方式都支持 `source`、`target`、`delete`（部署前清空目标）字段。
+| `copy` | 纯 Python 复制（shutil），跨平台零依赖 | 本地/同机/Windows |
+| `rsync` | 调用系统 rsync 增量同步 | 远程服务器（需 rsync） |
+| `script` | 执行自定义脚本 | 复杂逻辑（docker/scp/helm） |
 
 ### 条件表达式（when）
 
-`when` 采用自研安全解析器（**不使用 eval**），只支持一个极小的语法子集，杜绝代码注入：
+`when` 采用自研安全解析器（**不使用 eval**），只支持 `==` `!=` `and` `or` `()`，杜绝代码注入：
 
 ```
-branch == 'main'                              # 相等
-env != 'test'                                 # 不等
-branch == 'main' and env == 'prod'            # 与
-branch == 'main' or branch == 'release'       # 或
-(branch == 'main' or branch == 'release') and env == 'prod'   # 括号分组
-git.ref == 'main'                             # 点号访问嵌套变量
+branch == 'main'
+branch == 'main' and env == 'prod'
+(branch == 'main' or branch == 'release') and env == 'prod'
 ```
 
-支持的运算符：`==` `!=` `and` `or` `()`。不支持 `>` `<` 等其他运算符（刻意限制）。
-
-### 模板变量
-
-命令中可用 `{{ var }}` 引用通过 `--var` 注入的变量：
+## 运行测试
 
 ```bash
-jenpy run --var branch=main --var env=prod
-```
-
-配置中：`run: echo "部署到 {{ env }} 环境"`
-
-## 命令参考
-
-```
-jenpy init [-o FILE]            生成示例配置
-jenpy run [-f FILE] [--var K=V] 执行流水线
-jenpy list [-f FILE]            查看流水线结构
-jenpy history [-n N]            查看构建历史
-jenpy logs <build_id>           查看某次构建明细
-jenpy serve [-p PORT] [--token T]  启动 webhook 服务
-jenpy watch [-i SECONDS]        定时轮询自动触发
-```
-
-### 自动触发
-
-**Webhook 模式**（事件驱动）——启动一个 HTTP 服务，收到 POST 即触发：
-
-```bash
-jenpy serve --port 8080 --token your-secret
-```
-
-触发方式：
-```bash
-curl -X POST -H "X-JenPy-Token: your-secret" http://127.0.0.1:8080/
-```
-
-**轮询模式**（时间驱动）——定期检查 git 是否有新提交，有则自动构建：
-
-```bash
-jenpy watch --interval 60
+pip install -e ".[dev,web]"
+pytest tests/ -v          # 82+ 测试
 ```
 
 ## 项目结构
 
 ```
 jenpy/
-├── __init__.py     版本号
 ├── cli.py          命令行入口
-├── config.py       YAML 加载与校验
+├── config.py       YAML 加载与序列化
 ├── pipeline.py     数据模型（Pipeline/Stage/Step）
 ├── conditions.py   when 条件安全求值器（自研，无 eval）
-├── executor.py     执行引擎（核心，含日志落盘与超时）
-├── history.py      构建历史读写
+├── executor.py     执行引擎（流式输出、超时、进程组清理）
+├── manager.py      构建编排器（队列、状态、订阅分发）
+├── history.py      构建历史（原子写 + 锁）
 ├── trigger.py      webhook 与定时轮询
 ├── deploy.py       部署执行器（copy/rsync/script）
-└── template.py     示例配置模板
-```
-
-## 运行测试
-
-```bash
-pip install pytest
-pytest tests/ -v
+├── template.py     示例配置模板
+├── api/            FastAPI Web 层（REST + SSE + 静态托管）
+└── web/static/     前端构建产物（由 web/frontend 构建）
+web/frontend/       Vue 3 前端源码
 ```
 
 ## 如何贡献
 
-欢迎提交 Issue 和 Pull Request。请确保 `pytest tests/` 通过。
+欢迎提交 Issue 和 Pull Request！详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+**适合新手的贡献方向**：
+- 加一个部署方式（docker/scp/helm）—— 只需在 `deploy.py` 加一个函数
+- 改进前端组件（日志搜索、主题切换、构建对比）
+- 完善文档和示例
+
+架构与扩展点说明见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
+## Roadmap
+
+- [x] 核心 CLI（YAML 流水线、执行引擎、历史、条件、部署）
+- [x] 可视化 Web UI（Dashboard、编辑器、实时日志、触发）
+- [x] 自举 CI（GitHub Actions）
+- [ ] 插件机制（entry_points 注册自定义部署器）
+- [ ] 并发构建支持
+- [ ] 通知集成（钉钉/Slack/邮件）
+- [ ] 构建产物 artifacts 打包
+- [ ] 流水线 DAG（阶段间依赖、并行）
 
 ## 许可证
 

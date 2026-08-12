@@ -5,6 +5,7 @@
 
 import os
 import tempfile
+import threading
 
 from jenpy.executor import BuildResult, StepResult
 from jenpy import history
@@ -63,3 +64,45 @@ def test_status_reflects_failure(tmp_path, monkeypatch):
     history.save(_make_result(success=False))
     records = history.list_records()
     assert records[0]["status"] == "failed"
+
+
+# ---------- P0 修复：并发安全 ----------
+
+def test_build_id_has_random_suffix():
+    """build_id 应带随机后缀，同一秒内多次调用应唯一。"""
+    ids = {history.new_build_id() for _ in range(20)}
+    assert len(ids) == 20  # 20 次调用得到 20 个不同 ID
+    # 格式应为 YYYYMMDD-HHMMSS-xxxx
+    import re
+    for bid in ids:
+        assert re.match(r"^\d{8}-\d{6}-[a-z0-9]{4}$", bid), bid
+
+
+def test_concurrent_saves_no_data_loss(tmp_path, monkeypatch):
+    """多个线程同时 save，不应丢失记录（原子写 + 锁的保护效果）。"""
+    _isolated_history(monkeypatch, tmp_path)
+
+    n_threads = 10
+    per_thread = 5
+    threads = []
+    errors = []
+
+    def writer():
+        try:
+            for _ in range(per_thread):
+                history.save(_make_result())
+        except Exception as e:
+            errors.append(e)
+
+    for _ in range(n_threads):
+        threads.append(threading.Thread(target=writer))
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"线程内异常: {errors}"
+    # list_records 默认 limit=20，这里显式取全部（50 < MAX_RECORDS=100）
+    records = history.list_records(limit=n_threads * per_thread)
+    # 所有记录都应存在（不被覆盖）
+    assert len(records) == n_threads * per_thread

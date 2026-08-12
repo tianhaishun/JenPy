@@ -62,7 +62,8 @@ class Executor:
     """
 
     def __init__(self, build_id: Optional[str] = None,
-                 on_step: Optional[Callable[[StepResult], None]] = None):
+                 on_step: Optional[Callable[[StepResult], None]] = None,
+                 on_line: Optional[Callable[[str, str, str], None]] = None):
         # build_id：本次构建的唯一标识，决定日志落盘目录
         # 不传则临时生成（history.save 会用真实 id 覆盖目录）
         self._build_id = build_id or _now_id()
@@ -70,6 +71,9 @@ class Executor:
         os.makedirs(self._log_dir, exist_ok=True)
         # on_step 回调：每个步骤结束后通知调用方（history 用它落盘）
         self._on_step = on_step or (lambda r: None)
+        # on_line 回调：每输出一行就通知调用方，签名 (stage_name, step_name, line)
+        # 用于 SSE/WebSocket 实时日志推送。None 时无开销。
+        self._on_line = on_line
 
     def run(self, pipeline: Pipeline, context: Optional[dict] = None) -> BuildResult:
         """执行整条流水线。
@@ -157,8 +161,13 @@ class Executor:
         print(_c(f"  $ {cmd}", "gray"))
 
         t0 = time.time()
+        # 行级回调：绑定当前 stage/step 名字，供订阅者定位来源
+        line_cb = None
+        if self._on_line is not None:
+            line_cb = lambda line: self._on_line(stage_name, label, line)
         success, returncode = _stream_command(
-            cmd, cwd=workspace, env=env, timeout=step.timeout, log_path=log_path,
+            cmd, cwd=workspace, env=env, timeout=step.timeout,
+            log_path=log_path, on_line=line_cb,
         )
         duration = time.time() - t0
 
@@ -184,20 +193,30 @@ class Executor:
         return os.path.join(self._log_dir, fname)
 
 
-def _stream_command(cmd, cwd, env, timeout, log_path) -> tuple:
+def _stream_command(cmd, cwd, env, timeout, log_path, on_line=None) -> tuple:
     """运行命令：输出同时打到终端和日志文件，并支持超时终止。
 
     第一性原理：用户既要「实时看到」，又要「事后能查」，还要「超时能停」。
     关键点：超时检查不能依赖「有新输出」——命令可能长时间无输出（如 sleep），
     所以用一个后台线程来监控超时，与输出读取解耦。
+    on_line：可选的行级回调，签名 (line: str) -> None；用于 SSE 实时推送。
     返回 (success, returncode)。
     """
+    # 以独立进程组启动，超时时整组杀掉，避免子进程残留（shell=True 会派生子进程）
+    popen_kwargs = dict(
+        shell=True, cwd=cwd, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace", bufsize=1,
+    )
+    if os.name == "nt":
+        # Windows：新进程组，使 taskkill /T 能杀整棵树
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        # POSIX：新会话，使 os.killpg 能杀整组
+        popen_kwargs["start_new_session"] = True
+
     try:
-        proc = subprocess.Popen(
-            cmd, shell=True, cwd=cwd, env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace", bufsize=1,
-        )
+        proc = subprocess.Popen(cmd, **popen_kwargs)
     except Exception as e:
         _write_file(log_path, f"启动命令失败: {e}\n")
         print(_c(f"  ✗ 启动失败: {e}", "red"))
@@ -205,7 +224,26 @@ def _stream_command(cmd, cwd, env, timeout, log_path) -> tuple:
 
     timed_out = False
 
-    # 后台超时监控线程：到点就杀进程，不依赖是否有输出
+    def _kill_tree():
+        """杀掉进程及其全部子进程。"""
+        try:
+            if os.name == "nt":
+                # Windows：taskkill /T /F 连带子进程强制结束
+                subprocess.run(
+                    ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                    capture_output=True, timeout=10,
+                )
+            else:
+                # POSIX：proc.pid 是新会话的组长，killpg 杀整组
+                os.killpg(os.getpgid(proc.pid), 9)
+        except Exception:
+            # 兜底：进程可能已退出
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+    # 后台超时监控线程：到点就杀进程组，不依赖是否有输出
     def _watch():
         nonlocal timed_out
         if not timeout:
@@ -214,7 +252,7 @@ def _stream_command(cmd, cwd, env, timeout, log_path) -> tuple:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             timed_out = True
-            proc.kill()
+            _kill_tree()
 
     import threading
     watcher = threading.Thread(target=_watch, daemon=True)
@@ -226,6 +264,12 @@ def _stream_command(cmd, cwd, env, timeout, log_path) -> tuple:
                 print(line, end="")   # 终端
                 f.write(line)          # 文件
                 f.flush()
+                if on_line is not None:
+                    try:
+                        on_line(line)
+                    except Exception:
+                        # 回调失败不能影响执行，吞掉
+                        pass
         except Exception as e:
             f.write(f"\n读取输出异常: {e}\n")
 
@@ -233,6 +277,8 @@ def _stream_command(cmd, cwd, env, timeout, log_path) -> tuple:
     proc.wait()
 
     if timed_out:
+        # 确保彻底回收，防止残留
+        _kill_tree()
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(f"\n[超时：超过 {timeout}s 被终止]\n")
         print(_c(f"  ✗ 超时（>{timeout}s）", "red"))

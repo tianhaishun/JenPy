@@ -19,3 +19,9 @@ env/
 .vscode/
 .idea/
 *.swp
+
+# 前端：node_modules 不入库
+web/frontend/node_modules/
+# 前端构建产物由 CI/开发者本地构建生成，不入库（保持仓库精简）
+jenpy/web/static/
+.zcode/

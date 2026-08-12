@@ -13,8 +13,23 @@ dependencies = [
     "PyYAML>=6.0",
 ]
 
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.20",
+]
+dev = [
+    "pytest>=7.0",
+    "httpx>=0.24",
+    "ruff>=0.4",
+]
+
 [project.scripts]
 jenpy = "jenpy.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["jenpy*"]
+
+# 打包前端构建产物（若存在），让 pip install 后 jenpy ui 即可用
+[tool.setuptools.package-data]
+jenpy = ["web/static/**/*"]

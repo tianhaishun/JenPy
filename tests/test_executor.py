@@ -104,3 +104,31 @@ def test_template_variable_substitution():
     ])
     result = Executor().run(pipeline, context={"who": "world"})
     assert result.success is True
+
+
+# ---------- 行级实时回调（为 Web SSE 日志流准备） ----------
+
+def test_on_line_callback_receives_output():
+    """on_line 回调应逐行收到命令输出，用于实时推送。
+
+    用 Python 打印两行，避免依赖平台 shell 的换行/分隔符语义。
+    """
+    captured = []
+
+    def on_line(stage, step, line):
+        captured.append((stage, step, line))
+
+    pipeline = _make_pipeline([
+        Stage(name="s1", steps=[
+            Step(name="greet",
+                 run='python -c "print(\'LINE_MARKER_1\'); print(\'LINE_MARKER_2\')"'),
+        ]),
+    ])
+    Executor(build_id="test-on-line", on_line=on_line).run(pipeline)
+
+    # 两行输出都应被捕获，且带正确的 stage/step 名
+    lines = [c[2] for c in captured]
+    joined = "".join(lines)
+    assert "LINE_MARKER_1" in joined
+    assert "LINE_MARKER_2" in joined
+    assert all(c[0] == "s1" and c[1] == "greet" for c in captured)

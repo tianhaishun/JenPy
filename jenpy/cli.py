@@ -88,6 +88,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_watch.add_argument("-i", "--interval", type=int, default=60, help="轮询间隔（秒）")
     p_watch.set_defaults(func=cmd_watch)
 
+    # ui
+    p_ui = sub.add_parser("ui", help="启动可视化 Web 界面")
+    p_ui.add_argument("-H", "--host", default="127.0.0.1", help="监听地址")
+    p_ui.add_argument("-p", "--port", type=int, default=8000, help="监听端口")
+    p_ui.set_defaults(func=cmd_ui)
+
     return parser
 
 
@@ -212,6 +218,17 @@ def cmd_watch(args) -> int:
         config_file=args.file,
         interval=args.interval,
     )
+
+
+def cmd_ui(args) -> int:
+    """启动可视化 Web 界面。"""
+    try:
+        from .api.app import run_server
+    except ImportError as e:
+        print(_c("Web 功能未安装。请运行: pip install jenpy[web]", "red"), file=sys.stderr)
+        print(_c(f"  ({e})", "gray"), file=sys.stderr)
+        return 1
+    return run_server(host=args.host, port=args.port)
 
 
 def _parse_vars(pairs: list) -> dict:

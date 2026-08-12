@@ -137,3 +137,53 @@ stages:
     with pytest.raises(ConfigError):
         load_pipeline(path)
     os.unlink(path)
+
+
+# ---------- dump_pipeline：与 load_pipeline 互为逆操作 ----------
+
+def test_dump_pipeline_roundtrip(tmp_path):
+    """dump 后 reload，结构应一致。可视化编辑器依赖此往返。"""
+    from jenpy.config import dump_pipeline
+    original = load_pipeline(_write_yaml(
+        "name: t\n"
+        "workspace: .\n"
+        "env:\n"
+        "  FOO: bar\n"
+        "stages:\n"
+        "  - name: s1\n"
+        "    when: branch == 'main'\n"
+        "    steps:\n"
+        "      - name: greet\n"
+        "        run: echo hi\n"
+        "        timeout: 10\n"
+        "      - name: soft\n"
+        "        run: echo soft\n"
+        "        continue_on_error: true\n"
+    ))
+    dumped = dump_pipeline(original)
+    reloaded = load_pipeline(_write_yaml(dumped))
+
+    assert reloaded.name == original.name == "t"
+    assert reloaded.env == original.env == {"FOO": "bar"}
+    assert len(reloaded.stages) == len(original.stages) == 1
+    s = reloaded.stages[0]
+    assert s.name == "s1"
+    assert s.when == "branch == 'main'"
+    assert len(s.steps) == 2
+    assert s.steps[0].run == "echo hi"
+    assert s.steps[0].timeout == 10
+    assert s.steps[1].continue_on_error is True
+
+
+def test_dump_pipeline_minimal():
+    """最小流水线 dump 应包含 name 和 stages，省略默认值。"""
+    from jenpy.config import dump_pipeline
+    from jenpy.pipeline import Pipeline, Stage, Step
+    yaml_text = dump_pipeline(Pipeline(
+        name="m",
+        stages=[Stage(name="a", steps=[Step(run="echo x")])],
+    ))
+    assert "name: m" in yaml_text
+    assert "echo x" in yaml_text
+    # workspace 默认 "." 不应输出
+    assert "workspace" not in yaml_text

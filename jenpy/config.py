@@ -42,6 +42,45 @@ def load_pipeline(path: str) -> Pipeline:
     return _build_pipeline(raw)
 
 
+def dump_pipeline(pipeline: Pipeline) -> str:
+    """把 Pipeline 对象序列化回 YAML 文本。
+
+    第一性原理：可视化编辑器改完结构后，需要写回 YAML 文件。
+    dataclass -> dict -> yaml.safe_dump，与 load_pipeline 互为逆操作。
+    仅输出非默认字段，保持输出简洁。
+    """
+    def step_to_dict(s: Step) -> dict:
+        d = {}
+        if s.name:
+            d["name"] = s.name
+        if s.run is not None:
+            d["run"] = s.run
+        if s.timeout is not None:
+            d["timeout"] = s.timeout
+        if s.env:
+            d["env"] = s.env
+        if s.continue_on_error:
+            d["continue_on_error"] = True
+        if s.deploy is not None:
+            d["deploy"] = s.deploy
+        return d
+
+    def stage_to_dict(st: Stage) -> dict:
+        d: dict = {"name": st.name}
+        if st.when:
+            d["when"] = st.when
+        d["steps"] = [step_to_dict(s) for s in st.steps]
+        return d
+
+    doc: dict = {"name": pipeline.name}
+    if pipeline.workspace and pipeline.workspace != ".":
+        doc["workspace"] = pipeline.workspace
+    if pipeline.env:
+        doc["env"] = pipeline.env
+    doc["stages"] = [stage_to_dict(st) for st in pipeline.stages]
+    return yaml.safe_dump(doc, allow_unicode=True, sort_keys=False, default_flow_style=False)
+
+
 def _build_pipeline(raw: dict) -> Pipeline:
     """把原始字典结构转成 Pipeline 对象。"""
     name = raw.get("name") or "unnamed-pipeline"
