@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { h, computed } from 'vue'
 import { NConfigProvider, NMessageProvider, NDialogProvider, NLayout, NLayoutHeader, NLayoutSider, NLayoutContent, NIcon, NMenu } from 'naive-ui'
-import { RouterView, useRoute } from 'vue-router'
+import { RouterView, useRoute, useRouter } from 'vue-router'
 import type { MenuOption } from 'naive-ui'
 import type { Component } from 'vue'
 import {
@@ -9,32 +9,48 @@ import {
   TimeOutline,
   CubeOutline,
   HammerOutline,
+  AddCircleOutline,
+  PeopleOutline,
 } from '@vicons/ionicons5'
 import { colors } from './theme'
 
 const route = useRoute()
+const router = useRouter()
 
 function renderIcon(icon: Component) {
   return () => h(NIcon, null, { default: () => h(icon) })
 }
 
-// Jenkins 风格侧边栏：New Item / Build History / 流水线 等
+// Jenkins 经典侧边栏菜单顺序：New Item / People / Build History / Manage Jenkins / My Views
 const menuOptions: MenuOption[] = [
   { label: 'Dashboard', key: '/dashboard', icon: renderIcon(SpeedometerOutline) },
-  { label: '构建历史', key: '/history', icon: renderIcon(TimeOutline) },
-  { label: '流水线', key: '/pipelines', icon: renderIcon(CubeOutline) },
-  { label: '管理', key: '/manage', icon: renderIcon(HammerOutline) },
+  { type: 'divider', key: 'd1' },
+  { label: 'New Item', key: '/pipelines', icon: renderIcon(AddCircleOutline) },
+  { label: 'People', key: '/people', icon: renderIcon(PeopleOutline), disabled: true },
+  { label: 'Build History', key: '/history', icon: renderIcon(TimeOutline) },
+  { label: 'Manage JenPy', key: '/manage', icon: renderIcon(HammerOutline) },
 ]
 
-// 高亮当前路由对应的菜单项
+// 高亮当前路由
 const activeKey = computed(() => {
-  // /builds/:id 归到构建历史
   if (route.path.startsWith('/builds')) return '/history'
+  if (route.path.startsWith('/job')) return '/dashboard'
   if (route.path.startsWith('/editor')) return '/pipelines'
   return route.path
 })
 
-// Naive UI 浅色主题覆盖：注入 Jenkins 配色
+// 面包屑
+const breadcrumbs = computed(() => {
+  const crumbs: { label: string; path?: string }[] = [{ label: 'Dashboard', path: '/dashboard' }]
+  if (route.path === '/dashboard') return [{ label: 'Dashboard' }]
+  if (route.path.startsWith('/history')) crumbs.push({ label: 'Build History' })
+  if (route.path.startsWith('/pipelines')) crumbs.push({ label: 'New Item / Pipelines' })
+  if (route.path.startsWith('/manage')) crumbs.push({ label: 'Manage JenPy' })
+  if (route.path.startsWith('/builds/')) crumbs.push({ label: 'Build Detail' })
+  if (route.path.startsWith('/job/')) crumbs.push({ label: decodeURIComponent(route.params.name as string) })
+  return crumbs
+})
+
 const themeOverrides = {
   common: {
     primaryColor: colors.headerBg,
@@ -56,48 +72,57 @@ const themeOverrides = {
     <NMessageProvider>
       <NDialogProvider>
         <NLayout position="absolute" style="height: 100vh">
-          <!-- Jenkins 经典深蓝 header 条 -->
+          <!-- Jenkins 经典深蓝 header -->
           <NLayoutHeader bordered class="jenkins-header">
-            <div class="header-brand">
+            <div class="header-brand" @click="router.push('/dashboard')" style="cursor: pointer;">
               <span class="brand-logo">🛠</span>
               <span class="brand-name">JenPy</span>
-              <span class="brand-sub">CI/CD 平台</span>
+              <span class="brand-sub">[Jenkins]</span>
+            </div>
+            <div class="header-search">
+              <input type="text" placeholder="搜索..." class="search-input" />
             </div>
             <div class="header-right">
               <a href="/docs" target="_blank" class="header-link">API 文档</a>
+              <span class="header-user">admin</span>
             </div>
           </NLayoutHeader>
 
-          <NLayout position="absolute" style="top: 48px" has-sider>
-            <!-- 左侧导航 -->
+          <NLayout position="absolute" style="top: 48px; bottom: 28px;" has-sider>
+            <!-- 左侧导航（Jenkins #side-panel） -->
             <NLayoutSider
               bordered
               :width="200"
-              content-style="padding-top: 8px; background: #fafafa;"
+              content-style="padding-top: 8px; background: #f8f8f8;"
             >
               <NMenu
                 :value="activeKey"
                 :options="menuOptions"
                 :indent="18"
-                @update:value="(key: string) => $router.push(key)"
+                @update:value="(key: string) => router.push(key)"
               />
-              <!-- Jenkins 风格底部状态 -->
-              <div class="sider-footer">
-                <div class="executor-status">
-                  <div class="executor-title">构建执行器</div>
-                  <div class="executor-info">
-                    <span class="dot active" />
-                    在线 · 串行模式
-                  </div>
-                </div>
-              </div>
             </NLayoutSider>
 
             <!-- 主内容区 -->
-            <NLayoutContent content-style="padding: 20px; background: #f0f0f0;">
+            <NLayoutContent content-style="padding: 16px 20px; background: #f0f0f0;">
+              <!-- 面包屑导航 -->
+              <div class="breadcrumb-bar" v-if="breadcrumbs.length > 0">
+                <template v-for="(crumb, i) in breadcrumbs" :key="i">
+                  <a v-if="crumb.path" class="crumb-link" @click="router.push(crumb.path!)">{{ crumb.label }}</a>
+                  <span v-else class="crumb-current">{{ crumb.label }}</span>
+                  <span v-if="i < breadcrumbs.length - 1" class="crumb-sep">/</span>
+                </template>
+              </div>
               <RouterView />
             </NLayoutContent>
           </NLayout>
+
+          <!-- Jenkins 风格 footer -->
+          <div class="jenkins-footer">
+            <span>JenPy ver. 0.1.0</span>
+            <span class="footer-sep">·</span>
+            <a href="/docs" target="_blank" class="footer-link">REST API</a>
+          </div>
         </NLayout>
       </NDialogProvider>
     </NMessageProvider>
@@ -110,7 +135,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
 }
 
-/* Jenkins 经典深蓝 header */
+/* Jenkins 深蓝 header */
 .jenkins-header {
   height: 48px;
   display: flex;
@@ -121,68 +146,68 @@ body {
   color: #fff;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
-
 .header-brand {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 .brand-logo { font-size: 20px; }
-.brand-name {
-  font-size: 18px;
-  font-weight: 700;
+.brand-name { font-size: 18px; font-weight: 700; color: #fff; }
+.brand-sub { font-size: 12px; color: rgba(255, 255, 255, 0.5); margin-left: 4px; }
+
+.header-search { flex: 1; display: flex; justify-content: center; }
+.search-input {
+  width: 240px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 3px;
+  background: rgba(255,255,255,0.1);
   color: #fff;
-}
-.brand-sub {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
-  margin-left: 4px;
+  outline: none;
 }
+.search-input::placeholder { color: rgba(255,255,255,0.4); }
+.search-input:focus { background: rgba(255,255,255,0.15); }
 
-.header-right { display: flex; align-items: center; }
-.header-link {
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 13px;
-  text-decoration: none;
-}
+.header-right { display: flex; align-items: center; gap: 16px; }
+.header-link { color: rgba(255,255,255,0.85); font-size: 13px; text-decoration: none; }
 .header-link:hover { color: #fff; }
+.header-user { color: rgba(255,255,255,0.7); font-size: 13px; }
 
-/* 侧边栏底部执行器状态（Jenkins 标志性 widget 简化版） */
-.sider-footer {
+/* 面包屑 */
+.breadcrumb-bar {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e0e0e0;
+}
+.crumb-link { color: #0f6ab0; cursor: pointer; }
+.crumb-link:hover { text-decoration: underline; }
+.crumb-current { color: #333; font-weight: 500; }
+.crumb-sep { margin: 0 6px; color: #ccc; }
+
+/* Jenkins footer */
+.jenkins-footer {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 12px 16px;
-  border-top: 1px solid #e0e0e0;
-  background: #fafafa;
-}
-.executor-title {
-  font-size: 11px;
-  color: #999;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 6px;
-}
-.executor-info {
-  font-size: 12px;
-  color: #666;
+  height: 28px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  gap: 8px;
+  background: #fff;
+  border-top: 1px solid #e0e0e0;
+  font-size: 11px;
+  color: #999;
 }
-.executor-info .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #16a34a;
-}
-.executor-info .dot.active {
-  box-shadow: 0 0 6px rgba(22, 163, 74, 0.6);
-}
+.footer-sep { color: #ccc; }
+.footer-link { color: #0f6ab0; text-decoration: none; }
+.footer-link:hover { text-decoration: underline; }
 
-/* 全局：表格/卡片圆角更小，信息密度更高（Jenkins 风格） */
-.n-card {
-  border-radius: 4px !important;
-}
+/* 全局卡片圆角 */
+.n-card { border-radius: 4px !important; }
 </style>

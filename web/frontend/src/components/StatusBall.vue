@@ -24,6 +24,7 @@ const colorClass = computed(() => {
     case 'success': return 'ball-success'
     case 'failed': return 'ball-failed'
     case 'running': return 'ball-running'
+    case 'unstable': return 'ball-unstable'
     case 'queued': return 'ball-queued'
     default: return 'ball-unknown'
   }
@@ -66,6 +67,10 @@ const isAnimated = computed(() => props.status === 'running')
 .ball-queued {
   background: radial-gradient(circle at 35% 35%, #d1d5db, #9ca3af);
   box-shadow: 0 0 3px rgba(156, 163, 175, 0.4);
+}
+.ball-unstable {
+  background: radial-gradient(circle at 35% 35%, #ffd966, #f0ad4e);
+  box-shadow: 0 0 4px rgba(240, 173, 78, 0.5);
 }
 .ball-unknown {
   background: radial-gradient(circle at 35% 35%, #d1d5db, #6b7280);

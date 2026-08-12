@@ -8,6 +8,7 @@ export const router = createRouter({
     { path: '/dashboard', name: 'dashboard', component: () => import('./views/Dashboard.vue') },
     { path: '/history', name: 'history', component: () => import('./views/BuildHistory.vue') },
     { path: '/builds/:id', name: 'build-detail', component: () => import('./views/BuildDetail.vue') },
+    { path: '/job/:name', name: 'job-detail', component: () => import('./views/JobDetail.vue') },
     { path: '/pipelines', name: 'pipelines', component: () => import('./views/PipelineList.vue') },
     { path: '/editor/:name', name: 'editor', component: () => import('./views/PipelineEditor.vue') },
     { path: '/manage', name: 'manage', component: () => import('./views/Manage.vue') },
