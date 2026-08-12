@@ -15,18 +15,16 @@ stages:
       - name: Python 版本
         run: python --version
       - name: 当前目录
-        run: pwd
+        run: python -c "import os; print(os.getcwd())"
 
-  # 2. 构建阶段
+  # 2. 构建阶段 —— 用 python -c 保证跨平台（Windows 无 mkdir/pwd/date）
   - name: 构建
     steps:
       - name: 清理产物
-        run: echo "cleaning..."
+        run: python -c "print('cleaning...')"
         continue_on_error: true
       - name: 创建构建产物
-        run: |
-          mkdir -p dist
-          echo "built at $(date)" > dist/build.txt
+        run: python -c "import os,datetime; os.makedirs('dist',exist_ok=True); open('dist/build.txt','w').write(f'built at {datetime.datetime.now()}')"
 
   # 3. 测试阶段
   - name: 测试
@@ -41,6 +39,7 @@ stages:
     steps:
       - name: 部署到服务器
         deploy:
-          method: rsync
+          method: copy              # 用 copy 跨平台，rsync 在 Windows 默认不存在
           source: ./dist/
-          target: user@your-server:/var/www/example/
+          target: ./deployed/
+          delete: true
